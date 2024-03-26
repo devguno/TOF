@@ -13,6 +13,7 @@
 
 
 tof/
+*.csv
 
 ### DBeaver ###
 # ide config file
