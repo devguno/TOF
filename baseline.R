@@ -2,7 +2,7 @@ library(gtsummary)
 library(dplyr)
 
 # 데이터 불러오기
-data <- read.csv("cohort_final.csv")
+data <- read.csv("cohort_final2.csv")
 
 # 'tof_group' 레이블 정의
 data$tof_group <- factor(data$tof_group,
