@@ -1,38 +1,48 @@
+# 필요한 라이브러리 로드
 library(gtsummary)
 library(dplyr)
-library(forcats)
+library(purrr)
 
-# 데이터 불러오기
-data <- read.csv("tof_final_cohort_drug_with_group.csv")
+# 데이터 로드
+df <- read.csv("medication_continued_cohort.csv")
 
-# Define labels for 'tof_group'
-data$tof_group <- factor(data$tof_group,
-                         levels = c(1, 2, 3),
-                         labels = c("Patients diagnosed with TOF",
-                                    "Patients diagnosed with TOF with pulmonary atresia",
-                                    "Patients diagnosed with both TOF and TOF with pulmonary atresia"))
+# 요약 테이블 생성 함수 정의
+create_summary_table <- function(data, by_var = NULL) {
+  summary <- data %>%
+    select(drug_category, all_of(by_var)) %>%
+    tbl_summary(
+      by = if (!is.null(by_var)) all_of(by_var) else NULL,
+      statistic = all_categorical() ~ "{n} ({p}%)",
+      missing = "no"
+    )
+  
+  if (!is.null(by_var)) {
+    summary <- summary %>%
+      add_p() %>%
+      modify_header(label ~ "**Drug Category**") %>%
+      modify_spanning_header(list(everything() ~ by_var))
+  }
+  
+  summary <- summary %>%
+    bold_labels()
+  
+  return(summary)
+}
 
-# Add a new column 'group_analysis' including TOF Total group
-data$group_analysis <- factor(
-  rep("TOF Total", nrow(data)),
-  levels = c("TOF Total", "Patients diagnosed with TOF",
-             "Patients diagnosed with TOF with pulmonary atresia",
-             "Patients diagnosed with both TOF and TOF with pulmonary atresia")
+# 전체 요약 테이블 생성
+summary_table_total <- create_summary_table(df)
+
+# 심방빈맥에 따른 요약 테이블 생성
+summary_table_AF <- create_summary_table(df, "AF")
+
+# 심실빈맥에 따른 요약 테이블 생성
+summary_table_VT <- create_summary_table(df, "VT")
+
+# 테이블 합치기
+combined_table <- tbl_merge(
+  tbls = list(summary_table_total, summary_table_AF, summary_table_VT),
+  tab_spanner = c("**Overall**", "**Atrial Flutter/Fibrillation (AF)**", "**Ventricular Tachycardia (VT)**")
 )
 
-# Combine the existing groups with TOF Total and adjust the data
-data_long <- bind_rows(
-  data %>% mutate(group_analysis = "TOF Total"),
-  data %>% mutate(group_analysis = as.character(tof_group))
-)
-
-# 약제 처방 빈도 테이블 생성
-drug_table <- tbl_summary(
-  data_long,
-  by = "group_analysis", # 'group_analysis'로 그룹화
-  include = "drug_category", # drug_category 변수 포함
-  statistic = all_categorical() ~ "{n} ({p}%)" # 범주형 변수에 대한 통계
-) 
-
-# 결과 보기
-print(drug_table)
+# 결과 출력
+combined_table
