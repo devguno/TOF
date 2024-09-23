@@ -1,8 +1,8 @@
 import pandas as pd
 
 # CSV 파일 불러오기
-vdtof_mri = pd.read_csv(r'C:\github\TOF\mri\vdtof_mri.csv')
-mri_regex = pd.read_csv(r'C:\github\TOF\mri\MRI_Regex.csv')
+vdtof_mri = pd.read_csv(r'C:\Users\iamgu\Documents\GitHub\TOF\mri\vdtof_mri.csv')
+mri_regex = pd.read_csv(r'C:\Users\iamgu\Documents\GitHub\TOF\mri\MRI_Regex.csv')
 
 # measurement_datetime을 datetime 형식으로 변환 후 날짜 정보만 추출
 vdtof_mri['measurement_datetime'] = pd.to_datetime(vdtof_mri['measurement_datetime']).dt.date
@@ -17,6 +17,6 @@ merged_df = pd.merge(
 )
 
 # 결과 저장
-merged_df.to_csv(r'C:\github\TOF\mri\MRI_Regex_updated.csv', index=False, encoding='utf-8')
+merged_df.to_csv(r'C:\Users\iamgu\Documents\GitHub\TOF\mri\MRI_Regex_updated.csv', index=False, encoding='utf-8')
 
 print("데이터 매칭 완료 및 MRI_Regex_updated.csv에 저장되었습니다.")
