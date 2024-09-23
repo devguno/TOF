@@ -65,6 +65,6 @@ for index, row in tqdm(matching_rows.iterrows(), total=len(matching_rows)):
 df.update(matching_rows)
 
 # Save the result to a new CSV file
-df.to_csv('/Users/guno/github/TOF/mri/extracted_mri_data_all_rows.csv', index=False)
+df.to_csv('/Users/guno/github/TOF/mri/extracted_mri_data_all_rows.csv', index=False, encoding='utf-8-sig')
 
 print(f"Extracted data for {len(matching_rows)} rows and saved to 'extracted_mri_data_all_rows.csv'")
