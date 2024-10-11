@@ -2,23 +2,21 @@ import re
 import pandas as pd
 from tqdm import tqdm
 
+
 def define_patterns():
     """Define improved regex patterns for data extraction."""
     patterns = {
         "Delayed Enhancement": re.compile(r"No.*?(?:abnormal delayed enhancement|evidence of.*?delayed enhancement|evidence of myocardiac infarction)", re.IGNORECASE),
-        "PR": re.compile(r"(No|Trivial|Mild|Moderate to severe|Moderate|Severe)\s+PR", re.IGNORECASE),
-        "PR_fraction": re.compile(r"(?:PR|MPA RF|RPA\+LPA RF|regurgitation fraction).*?=.*?(\d+(?:\.\d+)?)/(\d+(?:\.\d+)?)\s*=\s*(\d+(?:\.\d+)?)", re.DOTALL | re.IGNORECASE),
-        "Lung_perfusion": re.compile(r"Lung perfusion.*?R\s*:\s*L\s*=\s*([\d\.]+)\s*%\s*:\s*([\d\.]+)\s*%", re.DOTALL | re.IGNORECASE),
-        "BSA": re.compile(r"(?:BSA|Body surface area)\s*=\s*([\d\.]+)\s*(?:m\^2|M2)", re.IGNORECASE),
-        "TR": re.compile(r"(No|Trivial|Mild|Moderate to severe|Moderate|Severe)\s+TR", re.IGNORECASE),
+        "BSA": re.compile(r"(?:BSA|Body surface area)\s*[:=]\s*([\d\.]+)\s*(?:m\^2|M2)", re.IGNORECASE),
     }
 
     patterns_measurement = {
-        "EF": re.compile(r"EF\s*([\d\.]+)%", re.DOTALL | re.IGNORECASE),
-        "EDV": re.compile(r"EDV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?", re.DOTALL | re.IGNORECASE),
-        "ESV": re.compile(r"ESV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?", re.DOTALL | re.IGNORECASE),
-        "SV": re.compile(r"SV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?", re.DOTALL | re.IGNORECASE),
-        "CO": re.compile(r"(?:CO|cardiac output)\s*([\d\.]+)(?:\s*L/min)?(?:\s*\(([\d\.]+)\))?", re.DOTALL | re.IGNORECASE),
+        "EF": re.compile(r"Ejection Fraction\s*[:=]\s*([\d\.]+)\s*%", re.DOTALL | re.IGNORECASE),
+        "EDV": re.compile(r"End-Diastolic Volume\s*[:=]\s*([\d\.]+)\s*\(([\d\.]+)\)\s*ml", re.DOTALL | re.IGNORECASE),
+        "ESV": re.compile(r"End-Systolic Volume\s*[:=]\s*([\d\.]+)\s*\(([\d\.]+)\)\s*ml", re.DOTALL | re.IGNORECASE),
+        "SV": re.compile(r"Stroke Volume\s*[:=]\s*([\d\.]+)\s*\(([\d\.]+)\)\s*ml", re.DOTALL | re.IGNORECASE),
+        "CO": re.compile(r"Cardiac Output\s*[:=]\s*([\d\.]+)\s*\(([\d\.]+)\)\s*l/min", re.DOTALL | re.IGNORECASE),
+        "mass": re.compile(r"Average Myocardial Mass\s*[:=]\s*([\d\.]+)\s*\(([\d\.]+)\)\s*g", re.DOTALL | re.IGNORECASE),
     }
 
     return patterns, patterns_measurement
@@ -32,14 +30,42 @@ def safe_extract(pattern, text):
 
 def detect_format(text):
     """Detect the format of the report."""
-    if re.search(r"(?:LV|RV).*?EF.*?(?:LV|RV).*?EF", text, re.DOTALL | re.IGNORECASE):
-        return "table"
+    if re.search(r"\d+\.\s*(?:Morphology|Regurgitation|Flow Measurement|Ventricular Function)", text, re.DOTALL | re.IGNORECASE):
+        return "compact"
     elif re.search(r"1\.\s*LV Function Measurement", text, re.DOTALL | re.IGNORECASE):
         return "sectioned"
     elif re.search(r"LV\s+RV", text, re.DOTALL | re.IGNORECASE):
         return "side_by_side"
+    elif re.search(r"(?:LV|RV).*?EF.*?(?:LV|RV).*?EF", text, re.DOTALL | re.IGNORECASE):
+        return "table"
     else:
         return "unknown"
+
+def extract_data_compact(text, patterns, patterns_measurement):
+    """Extract data from compact format reports."""
+    results = {}
+
+    ventricular_function = re.search(r"4\.\s*Ventricular Function(.*?)(?:\d+\.|$)", text, re.DOTALL | re.IGNORECASE)
+    if ventricular_function:
+        vf_text = ventricular_function.group(1)
+        
+        for ventricle in ['LV', 'RV']:
+            for key, pattern in patterns_measurement.items():
+                match = re.search(rf"{ventricle}\s+{key}\s*[:=]\s*([\d\.]+)(?:\s*\(([\d\.]+)\))?", vf_text, re.IGNORECASE)
+                if match:
+                    results[f'{ventricle} {key}'] = match.group(1)
+                    if match.group(2):
+                        results[f'{ventricle} {key}(Index)'] = match.group(2)
+
+    bsa_match = re.search(r"BSA\s*[:=]\s*([\d\.]+)\s*m2", text, re.IGNORECASE)
+    if bsa_match:
+        results['BSA'] = bsa_match.group(1)
+
+    delayed_enhancement = patterns["Delayed Enhancement"].search(text)
+    if delayed_enhancement:
+        results['Delayed Enhancement'] = delayed_enhancement.group(0)
+
+    return results
 
 def extract_data_table(text, patterns, patterns_measurement):
     """Extract data from table format reports."""
@@ -48,15 +74,7 @@ def extract_data_table(text, patterns, patterns_measurement):
     for key, pattern in patterns.items():
         groups = safe_extract(pattern, text)
         if groups:
-            if key == "PR_fraction" and len(groups) >= 3:
-                results["PR_fraction_numerator"] = groups[0]
-                results["PR_fraction_denominator"] = groups[1]
-                results["PR_fraction_value"] = groups[2]
-            elif key == "Lung_perfusion" and len(groups) >= 2:
-                results["Lung_perfusion_Rt"] = groups[0]
-                results["Lung_perfusion_Lt"] = groups[1]
-            elif len(groups) >= 1:
-                results[key] = groups[0]
+            results[key] = groups[0]
 
     lv_rv_pattern = re.compile(r"(?:LV|RV)\s*EF\s*([\d\.]+)%.*?(?:LV|RV)\s*EF\s*([\d\.]+)%.*?EDV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?.*?EDV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?.*?ESV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?.*?ESV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?.*?SV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?.*?SV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?.*?(?:CO|cardiac output)\s*([\d\.]+)(?:\s*L/min)?(?:\s*\(([\d\.]+)\))?.*?(?:CO|cardiac output)\s*([\d\.]+)(?:\s*L/min)?(?:\s*\(([\d\.]+)\))?", re.DOTALL | re.IGNORECASE)
     
@@ -94,15 +112,7 @@ def extract_data_side_by_side(text, patterns, patterns_measurement):
     for key, pattern in patterns.items():
         groups = safe_extract(pattern, text)
         if groups:
-            if key == "PR_fraction" and len(groups) >= 3:
-                results["PR_fraction_numerator"] = groups[0]
-                results["PR_fraction_denominator"] = groups[1]
-                results["PR_fraction_value"] = groups[2]
-            elif key == "Lung_perfusion" and len(groups) >= 2:
-                results["Lung_perfusion_Rt"] = groups[0]
-                results["Lung_perfusion_Lt"] = groups[1]
-            elif len(groups) >= 1:
-                results[key] = groups[0]
+            results[key] = groups[0]
 
     lv_rv_pattern = re.compile(r"LV\s+RV.*?EF\s*([\d\.]+)%\s+EF\s*([\d\.]+)%.*?EDV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?\s+EDV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?.*?ESV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?\s+ESV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?.*?SV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?\s+SV\s*([\d\.]+)(?:\s*ml)?(?:\s*\(([\d\.]+)\))?.*?CO\s*([\d\.]+)(?:\s*L/min)?(?:\s*\(([\d\.]+)\))?\s+CO\s*([\d\.]+)(?:\s*L/min)?(?:\s*\(([\d\.]+)\))?", re.DOTALL | re.IGNORECASE)
     
@@ -126,42 +136,43 @@ def extract_data_sectioned(text, patterns, patterns_measurement):
     """Extract data from sectioned format reports."""
     results = {}
 
-    for key, pattern in patterns.items():
-        groups = safe_extract(pattern, text)
-        if groups:
-            if key == "PR_fraction" and len(groups) >= 3:
-                results["PR_fraction_numerator"] = groups[0]
-                results["PR_fraction_denominator"] = groups[1]
-                results["PR_fraction_value"] = groups[2]
-            elif key == "Lung_perfusion" and len(groups) >= 2:
-                results["Lung_perfusion_Rt"] = groups[0]
-                results["Lung_perfusion_Lt"] = groups[1]
-            elif len(groups) >= 1:
-                results[key] = groups[0]
-
-    lv_section = re.search(r"1\.\s*LV Function Measurement.*?(?=2\.\s*RV Function Measurement|\Z)", text, re.DOTALL)
-    rv_section = re.search(r"2\.\s*RV Function Measurement.*?(?=3\.|Forward Vol\.|\Z)", text, re.DOTALL)
+    lv_section = re.search(r"1\.\s*LV Function Measurement.*?(?=2\.\s*RV Function Measurement|\Z)", text, re.DOTALL | re.IGNORECASE)
+    rv_section = re.search(r"2\.\s*RV Function Measurement.*?(?=3\.|Forward Vol\.|\Z)", text, re.DOTALL | re.IGNORECASE)
 
     if lv_section:
+        lv_text = lv_section.group(0)
         for key, pattern in patterns_measurement.items():
-            groups = safe_extract(pattern, lv_section.group(0))
-            if groups:
-                results[f'LV {key}'] = groups[0]
-                if len(groups) > 1:
-                    results[f'LV {key}(Index)'] = groups[1]
+            match = pattern.search(lv_text)
+            if match:
+                results[f'LV {key}'] = match.group(1)
+                if len(match.groups()) > 1:
+                    results[f'LV {key}(Index)'] = match.group(2)
 
     if rv_section:
+        rv_text = rv_section.group(0)
         for key, pattern in patterns_measurement.items():
-            groups = safe_extract(pattern, rv_section.group(0))
-            if groups:
-                results[f'RV {key}'] = groups[0]
-                if len(groups) > 1:
-                    results[f'RV {key}(Index)'] = groups[1]
+            match = pattern.search(rv_text)
+            if match:
+                results[f'RV {key}'] = match.group(1)
+                if len(match.groups()) > 1:
+                    results[f'RV {key}(Index)'] = match.group(2)
+
+    bsa_match = re.search(r"BSA\s*[:=]\s*([\d\.]+)\s*m2", text, re.IGNORECASE)
+    if bsa_match:
+        results['BSA'] = bsa_match.group(1)
+
+    hr_match = re.search(r"Heart Rate\s*[:=]\s*([\d\.]+)\s*bpm", text, re.IGNORECASE)
+    if hr_match:
+        results['Heart Rate'] = hr_match.group(1)
+
+    lung_perfusion_match = re.search(r"Lung perfusion ratio.*?Rt\s*:\s*Lt\s*=\s*([\d\.]+)%\s*:\s*([\d\.]+)%", text, re.DOTALL | re.IGNORECASE)
+    if lung_perfusion_match:
+        results['Lung_perfusion_Rt'] = lung_perfusion_match.group(1)
+        results['Lung_perfusion_Lt'] = lung_perfusion_match.group(2)
 
     return results
 
 def process_data(df):
-    """Process the data and return the final DataFrame."""
     patterns, patterns_measurement = define_patterns()
     all_results = []
 
@@ -176,8 +187,10 @@ def process_data(df):
                 results = extract_data_sectioned(text, patterns, patterns_measurement)
             elif format_type == "side_by_side":
                 results = extract_data_side_by_side(text, patterns, patterns_measurement)
+            elif format_type == "compact":
+                results = extract_data_compact(text, patterns, patterns_measurement)
             else:
-                results = extract_data_table(text, patterns, patterns_measurement)  # Fallback to table extraction
+                results = extract_data_compact(text, patterns, patterns_measurement)  # Fallback to compact extraction
 
             results['Text'] = text
             results['pt_no'] = row['pt_no']
@@ -189,13 +202,12 @@ def process_data(df):
             print(f"Error processing row {row['pt_no']}: {str(e)}")
             continue
 
-    columns = ['pt_no', 'Date', 'Code', 'Format', 'Text', 'Delayed Enhancement', 'PR', 
-               'PR_fraction_numerator', 'PR_fraction_denominator', 'PR_fraction_value', 'BSA',
-               'Lung_perfusion_Rt', 'Lung_perfusion_Lt',
-               'LV EF', 'LV EDV', 'LV EDV(Index)', 'LV ESV', 'LV ESV(Index)',
-               'LV SV', 'LV SV(Index)', 'LV CO', 'LV CO(Index)', 'LV MM', 'LV MM(Index)',
-               'RV EF', 'RV EDV', 'RV EDV(Index)', 'RV ESV', 'RV ESV(Index)',
-               'RV SV', 'RV SV(Index)', 'RV CO', 'RV CO(Index)', 'RV MM', 'RV MM(Index)']
+    columns = ['pt_no', 'Date', 'Code', 'Format', 'Text', 'Delayed Enhancement', 'BSA',
+           'LV EF', 'LV EDV', 'LV EDV(Index)', 'LV ESV', 'LV ESV(Index)',
+           'LV SV', 'LV SV(Index)', 'LV CO', 'LV CO(Index)', 'LV mass', 'LV mass(Index)',
+           'RV EF', 'RV EDV', 'RV EDV(Index)', 'RV ESV', 'RV ESV(Index)',
+           'RV SV', 'RV SV(Index)', 'RV CO', 'RV CO(Index)', 'RV mass', 'RV mass(Index)',
+           'Heart Rate', 'Lung_perfusion_Rt', 'Lung_perfusion_Lt']
 
     all_results_df = pd.DataFrame(all_results)
     all_results_df = all_results_df.reindex(columns=columns)
@@ -208,7 +220,7 @@ def process_data(df):
 
 def main():
     # Load data
-    df = pd.read_csv(r'C:\github\TOF\mri\tof_mri.csv')
+    df = pd.read_csv(r'C:\Users\Roh\Documents\GitHub\TOF\mri\tof_mri.csv')
 
     # Process data
     all_results_df = process_data(df)
