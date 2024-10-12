@@ -2,7 +2,6 @@ import re
 import pandas as pd
 from tqdm import tqdm
 
-
 def define_patterns():
     """Define improved regex patterns for data extraction."""
     patterns = {
