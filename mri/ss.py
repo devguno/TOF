@@ -6,7 +6,7 @@ from tqdm import tqdm
 def define_patterns():
     """Define improved regex patterns for data extraction."""
     patterns = {
-        "Delayed Enhancement": re.compile(r"No.*?(?:abnormal delayed enhancement|evidence of.*?delayed enhancement|evidence of myocardiac infarction)", re.IGNORECASE),
+        "Delayed Enhancement": re.compile(r"(?:LGE|DE)\s*(?:\+|\(\+\)|-|\(-\)).*?(?:at|in)?.*?(?:RV|LV)?.*?(?:insertion|wall)?", re.IGNORECASE | re.DOTALL),
         "BSA": re.compile(r"(?:BSA|Body surface area)\s*[:=]\s*([\d\.]+)\s*(?:m\^2|M2)", re.IGNORECASE),
     }
 
@@ -16,7 +16,7 @@ def define_patterns():
         "ESV": re.compile(r"End-Systolic Volume\s*[:=]\s*([\d\.]+)\s*\(([\d\.]+)\)\s*ml", re.DOTALL | re.IGNORECASE),
         "SV": re.compile(r"Stroke Volume\s*[:=]\s*([\d\.]+)\s*\(([\d\.]+)\)\s*ml", re.DOTALL | re.IGNORECASE),
         "CO": re.compile(r"Cardiac Output\s*[:=]\s*([\d\.]+)\s*\(([\d\.]+)\)\s*l/min", re.DOTALL | re.IGNORECASE),
-        "mass": re.compile(r"Average Myocardial Mass\s*[:=]\s*([\d\.]+)\s*\(([\d\.]+)\)\s*g", re.DOTALL | re.IGNORECASE),
+        "mass": re.compile(r"(?:Average )?Myocardial Mass\s*[:=]\s*([\d\.]+)\s*\(([\d\.]+)\)\s*g", re.DOTALL | re.IGNORECASE),
     }
 
     return patterns, patterns_measurement
@@ -145,7 +145,7 @@ def extract_data_sectioned(text, patterns, patterns_measurement):
             match = pattern.search(lv_text)
             if match:
                 results[f'LV {key}'] = match.group(1)
-                if len(match.groups()) > 1:
+                if len(match.groups()) > 1 and match.group(2):
                     results[f'LV {key}(Index)'] = match.group(2)
 
     if rv_section:
@@ -154,21 +154,16 @@ def extract_data_sectioned(text, patterns, patterns_measurement):
             match = pattern.search(rv_text)
             if match:
                 results[f'RV {key}'] = match.group(1)
-                if len(match.groups()) > 1:
+                if len(match.groups()) > 1 and match.group(2):
                     results[f'RV {key}(Index)'] = match.group(2)
 
     bsa_match = re.search(r"BSA\s*[:=]\s*([\d\.]+)\s*m2", text, re.IGNORECASE)
     if bsa_match:
         results['BSA'] = bsa_match.group(1)
 
-    hr_match = re.search(r"Heart Rate\s*[:=]\s*([\d\.]+)\s*bpm", text, re.IGNORECASE)
-    if hr_match:
-        results['Heart Rate'] = hr_match.group(1)
-
-    lung_perfusion_match = re.search(r"Lung perfusion ratio.*?Rt\s*:\s*Lt\s*=\s*([\d\.]+)%\s*:\s*([\d\.]+)%", text, re.DOTALL | re.IGNORECASE)
-    if lung_perfusion_match:
-        results['Lung_perfusion_Rt'] = lung_perfusion_match.group(1)
-        results['Lung_perfusion_Lt'] = lung_perfusion_match.group(2)
+    delayed_enhancement = patterns["Delayed Enhancement"].search(text)
+    if delayed_enhancement:
+        results['Delayed Enhancement'] = delayed_enhancement.group(0)
 
     return results
 
@@ -206,8 +201,7 @@ def process_data(df):
            'LV EF', 'LV EDV', 'LV EDV(Index)', 'LV ESV', 'LV ESV(Index)',
            'LV SV', 'LV SV(Index)', 'LV CO', 'LV CO(Index)', 'LV mass', 'LV mass(Index)',
            'RV EF', 'RV EDV', 'RV EDV(Index)', 'RV ESV', 'RV ESV(Index)',
-           'RV SV', 'RV SV(Index)', 'RV CO', 'RV CO(Index)', 'RV mass', 'RV mass(Index)',
-           'Heart Rate', 'Lung_perfusion_Rt', 'Lung_perfusion_Lt']
+           'RV SV', 'RV SV(Index)', 'RV CO', 'RV CO(Index)', 'RV mass', 'RV mass(Index)']
 
     all_results_df = pd.DataFrame(all_results)
     all_results_df = all_results_df.reindex(columns=columns)
