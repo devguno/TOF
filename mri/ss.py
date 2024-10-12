@@ -28,7 +28,6 @@ def safe_extract(pattern, text):
     return []
 
 def detect_format(text):
-    """Detect the format of the report."""
     if re.search(r"\d+\.\s*(?:Morphology|Regurgitation|Flow Measurement|Ventricular Function)", text, re.DOTALL | re.IGNORECASE):
         return "compact"
     elif re.search(r"1\.\s*LV Function Measurement", text, re.DOTALL | re.IGNORECASE):
